@@ -3,7 +3,7 @@ using ByteBank.Core.Service;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 
 namespace ByteBank.View
@@ -12,6 +12,7 @@ namespace ByteBank.View
     {
         private readonly ContaClienteRepository r_Repositorio;
         private readonly ContaClienteService r_Servico;
+        private readonly TaskScheduler taskSchedulerUI;
 
         public MainWindow()
         {
@@ -19,32 +20,12 @@ namespace ByteBank.View
 
             r_Repositorio = new ContaClienteRepository();
             r_Servico = new ContaClienteService();
+            taskSchedulerUI = TaskScheduler.FromCurrentSynchronizationContext();
         }
 
         private void BtnProcessar_Click(object sender, RoutedEventArgs e)
         {
-            var contas = r_Repositorio.GetContaClientes();
-
-            var partialContas = new IEnumerable<Core.Model.ContaCliente>[5];
-
-            var count = contas.Count() % partialContas.Length;
-            var take = contas.Count() / partialContas.Length;
-            var skip = 0;
-            for (int i = 0; i < partialContas.Length; i++)
-            {
-                var contasSkip = contas.Skip(skip);
-                if (count > 0)
-                {
-                    partialContas[i] = contasSkip.Take(take + 1);
-                    skip += take + 1;
-                    count--;
-                }
-                else
-                {
-                    partialContas[i] = contasSkip.Take(take);
-                    skip += take;
-                }
-            }
+            BtnProcessar.IsEnabled = false;
 
             var resultado = new List<string>();
 
@@ -52,34 +33,18 @@ namespace ByteBank.View
 
             var inicio = DateTime.Now;
 
-            var threads = new Thread[partialContas.Length];
-            for (int i = 0; i < threads.Length; i++)
+            var contasTasks = r_Repositorio.GetContaClientes().Select(conta =>
             {
-                int localCount = i;
-                threads[i] = new Thread(() =>
+                return Task.Factory.StartNew(() =>
                 {
-                    foreach (var conta in partialContas[localCount])
-                    {
-                        var resultadoConta = r_Servico.ConsolidarMovimentacao(conta);
-                        resultado.Add(resultadoConta);
-                    }
+                    var resultadoConta = r_Servico.ConsolidarMovimentacao(conta);
+                    resultado.Add(resultadoConta);
                 });
-                threads[i].Start();
-            }
+            }).ToArray();
 
-            //for (int i = 0; i < threads.Length; i++)
-            //{
-            //    threads[i].Start();
-            //}
-
-            while (threads.Where(x => x.IsAlive).Any())
-            {
-                Thread.Sleep(250);
-            }
-
-            var fim = DateTime.Now;
-
-            AtualizarView(resultado, fim - inicio);
+            Task.WhenAll(contasTasks)
+                .ContinueWith(task => AtualizarView(resultado, DateTime.Now - inicio), taskSchedulerUI)
+                .ContinueWith(task => BtnProcessar.IsEnabled = true, taskSchedulerUI);
         }
 
         private void AtualizarView(List<String> result, TimeSpan elapsedTime)
