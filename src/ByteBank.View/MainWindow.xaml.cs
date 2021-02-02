@@ -2,6 +2,8 @@
 using ByteBank.Core.Service;
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
 using System.Windows;
 
 namespace ByteBank.View
@@ -23,16 +25,56 @@ namespace ByteBank.View
         {
             var contas = r_Repositorio.GetContaClientes();
 
+            var partialContas = new IEnumerable<Core.Model.ContaCliente>[5];
+
+            var count = contas.Count() % partialContas.Length;
+            var take = contas.Count() / partialContas.Length;
+            var skip = 0;
+            for (int i = 0; i < partialContas.Length; i++)
+            {
+                var contasSkip = contas.Skip(skip);
+                if (count > 0)
+                {
+                    partialContas[i] = contasSkip.Take(take + 1);
+                    skip += take + 1;
+                    count--;
+                }
+                else
+                {
+                    partialContas[i] = contasSkip.Take(take);
+                    skip += take;
+                }
+            }
+
             var resultado = new List<string>();
 
             AtualizarView(new List<string>(), TimeSpan.Zero);
 
             var inicio = DateTime.Now;
 
-            foreach (var conta in contas)
+            var threads = new Thread[partialContas.Length];
+            for (int i = 0; i < threads.Length; i++)
             {
-                var resultadoConta = r_Servico.ConsolidarMovimentacao(conta);
-                resultado.Add(resultadoConta);
+                int localCount = i;
+                threads[i] = new Thread(() =>
+                {
+                    foreach (var conta in partialContas[localCount])
+                    {
+                        var resultadoConta = r_Servico.ConsolidarMovimentacao(conta);
+                        resultado.Add(resultadoConta);
+                    }
+                });
+                threads[i].Start();
+            }
+
+            //for (int i = 0; i < threads.Length; i++)
+            //{
+            //    threads[i].Start();
+            //}
+
+            while (threads.Where(x => x.IsAlive).Any())
+            {
+                Thread.Sleep(250);
             }
 
             var fim = DateTime.Now;
