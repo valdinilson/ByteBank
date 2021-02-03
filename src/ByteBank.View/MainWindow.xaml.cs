@@ -1,4 +1,5 @@
-﻿using ByteBank.Core.Repository;
+﻿using ByteBank.Core.Model;
+using ByteBank.Core.Repository;
 using ByteBank.Core.Service;
 using System;
 using System.Collections.Generic;
@@ -27,24 +28,29 @@ namespace ByteBank.View
         {
             BtnProcessar.IsEnabled = false;
 
-            var resultado = new List<string>();
-
             AtualizarView(new List<string>(), TimeSpan.Zero);
 
             var inicio = DateTime.Now;
 
-            var contasTasks = r_Repositorio.GetContaClientes().Select(conta =>
+            var resultado = ConsolidarContas(r_Repositorio.GetContaClientes())
+                .ContinueWith(task => AtualizarView(task.Result, DateTime.Now - inicio), taskSchedulerUI)
+                .ContinueWith(task => BtnProcessar.IsEnabled = true, taskSchedulerUI);
+        }
+
+        private Task<List<string>> ConsolidarContas(IEnumerable<ContaCliente> contas)
+        {
+            var resultado = new List<string>();
+
+            var contasTasks = contas.Select(conta =>
             {
                 return Task.Factory.StartNew(() =>
                 {
                     var resultadoConta = r_Servico.ConsolidarMovimentacao(conta);
                     resultado.Add(resultadoConta);
                 });
-            }).ToArray();
+            });
 
-            Task.WhenAll(contasTasks)
-                .ContinueWith(task => AtualizarView(resultado, DateTime.Now - inicio), taskSchedulerUI)
-                .ContinueWith(task => BtnProcessar.IsEnabled = true, taskSchedulerUI);
+            return Task.WhenAll(contasTasks).ContinueWith(t => resultado);
         }
 
         private void AtualizarView(List<String> result, TimeSpan elapsedTime)
