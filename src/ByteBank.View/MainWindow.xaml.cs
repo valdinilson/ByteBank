@@ -24,7 +24,7 @@ namespace ByteBank.View
             taskSchedulerUI = TaskScheduler.FromCurrentSynchronizationContext();
         }
 
-        private void BtnProcessar_Click(object sender, RoutedEventArgs e)
+        private async void BtnProcessar_Click(object sender, RoutedEventArgs e)
         {
             BtnProcessar.IsEnabled = false;
 
@@ -32,31 +32,24 @@ namespace ByteBank.View
 
             var inicio = DateTime.Now;
 
-            var resultado = ConsolidarContas(r_Repositorio.GetContaClientes())
-                .ContinueWith(task => AtualizarView(task.Result, DateTime.Now - inicio), taskSchedulerUI)
-                .ContinueWith(task => BtnProcessar.IsEnabled = true, taskSchedulerUI);
+            var resultado = await ConsolidarContas(r_Repositorio.GetContaClientes());
+
+            AtualizarView(resultado, DateTime.Now - inicio);
+
+            BtnProcessar.IsEnabled = !BtnProcessar.IsEnabled;
         }
 
-        private Task<List<string>> ConsolidarContas(IEnumerable<ContaCliente> contas)
+        private async Task<string[]> ConsolidarContas(IEnumerable<ContaCliente> contas)
         {
-            var resultado = new List<string>();
+            var tasks = contas.Select(conta => Task.Factory.StartNew(() => r_Servico.ConsolidarMovimentacao(conta)));
 
-            var contasTasks = contas.Select(conta =>
-            {
-                return Task.Factory.StartNew(() =>
-                {
-                    var resultadoConta = r_Servico.ConsolidarMovimentacao(conta);
-                    resultado.Add(resultadoConta);
-                });
-            });
-
-            return Task.WhenAll(contasTasks).ContinueWith(t => resultado);
+            return await Task.WhenAll(tasks);
         }
 
-        private void AtualizarView(List<String> result, TimeSpan elapsedTime)
+        private void AtualizarView(IEnumerable<String> result, TimeSpan elapsedTime)
         {
             var tempoDecorrido = $"{ elapsedTime.Seconds }.{ elapsedTime.Milliseconds} segundos!";
-            var mensagem = $"Processamento de {result.Count} clientes em {tempoDecorrido}";
+            var mensagem = $"Processamento de {result.Count()} clientes em {tempoDecorrido}";
 
             LstResultados.ItemsSource = result;
             TxtTempo.Text = mensagem;
